@@ -71,7 +71,7 @@ with st.sidebar:
 # HALAMAN PREDIKSI
 
 if page == "Prediction Dashboard":
-    st.subheader("📋 Identitas Pasien")
+    st.subheader("Identitas Pasien")
     c_id1, c_id2, c_id3 = st.columns(3)
 
     nama = c_id1.text_input("Nama Pasien", placeholder="Masukkan nama pasien...")
@@ -90,7 +90,7 @@ if page == "Prediction Dashboard":
     col_input, col_display = st.columns([1, 1.3])
 
     with col_input:
-        st.subheader("📑 Data Klinis")
+        st.subheader("Data Klinis")
 
         st.write("**Riwayat Hb (g/dL)**")
         h1, h2, h3 = st.columns(3)
@@ -137,7 +137,6 @@ if page == "Prediction Dashboard":
 
     with col_display:
         if btn_predict:
-            # Validasi semua field wajib terisi
             required_fields = {
                 "Usia": usia,
                 "Jenis Kelamin": jk,
@@ -152,7 +151,7 @@ if page == "Prediction Dashboard":
             missing = [k for k, v in required_fields.items() if v is None]
 
             if missing:
-                st.warning(f"⚠️ Mohon lengkapi data berikut: **{', '.join(missing)}**")
+                st.warning(f"Mohon lengkapi data berikut: **{', '.join(missing)}**")
             else:
                 try:
                     model = joblib.load('models/lgbm_best_model.pkl')
@@ -240,22 +239,22 @@ if page == "Prediction Dashboard":
                     st.plotly_chart(fig, use_container_width=True)
 
                     st.caption(
-                        "⚠️ **Disclaimer:** Akurasi prediksi akan menurun pada bulan ke-2 "
+                        "**Disclaimer:** Akurasi prediksi akan menurun pada bulan ke-2 "
                         "dan ke-3 karena bersifat estimasi recursive."
                     )
 
                 except FileNotFoundError:
                     st.error(
-                        "❌ Model belum tersedia. Silakan jalankan **Retraining System** "
+                        "Model belum tersedia. Silakan jalankan **Retraining System** "
                         "terlebih dahulu untuk membuat model."
                     )
                 except Exception as e:
-                    st.error(f"❌ Gagal memproses prediksi: {e}")
+                    st.error(f"Gagal memproses prediksi: {e}")
 
 
 # HALAMAN RETRAINING
 elif page == "Retraining System":
-    st.title("⚙️ Automated Retraining Model")
+    st.title("Automated Retraining Model")
     st.write("Unggah data Excel terbaru untuk memperbarui pengetahuan model.")
 
     file_upload = st.file_uploader("Pilih file Excel (.xlsx)", type=["xlsx"])
@@ -274,7 +273,7 @@ elif page == "Retraining System":
                     os.remove(temp_path)
 
                 if success:
-                    st.success("✅ Model LightGBM berhasil diperbarui!")
+                    st.success("Model LightGBM berhasil diperbarui!")
                     st.balloons()
                 else:
-                    st.error("❌ Terjadi kesalahan teknis saat retraining. Cek terminal untuk detail error.")
+                    st.error("Terjadi kesalahan teknis saat retraining. Cek terminal untuk detail error.")
