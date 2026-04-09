@@ -133,7 +133,7 @@ if page == "Prediction Dashboard":
         epo_val = 1 if epo == "Ya (Rutin)" else 0
 
         st.markdown("<br>", unsafe_allow_html=True)
-        btn_predict = st.button("🚀 PROSES PREDIKSI")
+        btn_predict = st.button("PROSES PREDIKSI")
 
     with col_display:
         if btn_predict:
