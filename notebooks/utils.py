@@ -110,4 +110,5 @@ def automated_pipeline(df):
                       'MCHC', 'MCH', 'MCV', 'hemoglobin', 'leukosit', 'trombosit', 'epo']
     df_complete = df_complete[final_features]
 
+    df_complete = df_complete.sort_values(['id_pasien', 'tgl_pemeriksaan']).reset_index(drop=True)
     return df_complete
