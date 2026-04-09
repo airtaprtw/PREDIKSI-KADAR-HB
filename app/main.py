@@ -11,10 +11,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'n
 
 from train import run_retraining
 
-# --- KONFIGURASI HALAMAN ---
 st.set_page_config(page_title="Hb Prediction Dashboard", layout="wide")
 
-# --- CUSTOM CSS (Style Figma & Clean Input) ---
 st.markdown("""
     <style>
     .main { background-color: #f8f9fa; }
@@ -48,7 +46,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 
-# --- FUNGSI LOGIKA STATUS ANEMIA ---
+# FUNGSI LOGIKA STATUS ANEMIA
 def get_anemia_status(hb, jk):
     limit = 13 if jk == 1 else 12
     if hb < 7:
@@ -61,7 +59,7 @@ def get_anemia_status(hb, jk):
         return "Normal / Mencapai Target", "🟢", "Kondisi stabil. Pertahankan terapi saat ini."
 
 
-# --- SIDEBAR ---
+# SIDEBAR
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/2966/2966327.png", width=50)
     st.title("Menu Utama")
@@ -70,9 +68,8 @@ with st.sidebar:
     st.info("Sistem Prediksi Kadar Hemoglobin Pasien Hemodialisis")
 
 
-# ─────────────────────────────────────────────
 # HALAMAN PREDIKSI
-# ─────────────────────────────────────────────
+
 if page == "Prediction Dashboard":
     st.subheader("📋 Identitas Pasien")
     c_id1, c_id2, c_id3 = st.columns(3)
@@ -158,10 +155,9 @@ if page == "Prediction Dashboard":
                 st.warning(f"⚠️ Mohon lengkapi data berikut: **{', '.join(missing)}**")
             else:
                 try:
-                    # 1. LOAD MODEL
                     model = joblib.load('models/lgbm_best_model.pkl')
 
-                    # 2. FEATURE ENGINEERING
+                    # FEATURE ENGINEERING
                     # hb_lag  = Hb bulan lalu (t-1)
                     # hb_delta = selisih Hb bulan lalu vs dua bulan lalu
                     # inflamasi & epo_resist = indikator klinis
@@ -185,10 +181,10 @@ if page == "Prediction Dashboard":
                     ]]
                     input_df = pd.DataFrame(input_data, columns=cols_name)
 
-                    # 3. PREDIKSI TERKINI (M+1)
+                    # PREDIKSI TERKINI (M+1)
                     current_pred = model.predict(input_df)[0]
 
-                    # 4. PROYEKSI RECURSIVE 3 BULAN KE DEPAN
+                    # PROYEKSI RECURSIVE 3 BULAN KE DEPAN
                     proj_results = []
                     temp_input   = input_df.copy()
                     last_hb_val  = hb_m1
@@ -197,12 +193,10 @@ if page == "Prediction Dashboard":
                         p = model.predict(temp_input)[0]
                         proj_results.append(p)
 
-                        # Update input untuk iterasi berikutnya
                         temp_input['hb_delta'] = p - last_hb_val
                         temp_input['hb_lag']   = p
                         last_hb_val = p
 
-                    # --- DISPLAY HASIL ---
                     st.markdown(f"""
                         <div class="prediction-card">
                             <p style='margin-bottom:0; font-size: 1.2rem;'>
@@ -259,9 +253,7 @@ if page == "Prediction Dashboard":
                     st.error(f"❌ Gagal memproses prediksi: {e}")
 
 
-# ─────────────────────────────────────────────
 # HALAMAN RETRAINING
-# ─────────────────────────────────────────────
 elif page == "Retraining System":
     st.title("⚙️ Automated Retraining Model")
     st.write("Unggah data Excel terbaru untuk memperbarui pengetahuan model.")
