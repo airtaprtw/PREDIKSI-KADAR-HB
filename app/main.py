@@ -166,8 +166,7 @@ if page == "Prediction Dashboard":
                     epo_resist = epo_val / (inflamasi + 1)
 
                     # Urutan kolom HARUS sama persis dengan X di train.py:
-                    # ['usia', 'jk', 'MCHC', 'MCV', 'leukosit', 'trombosit',
-                    #  'hb_lag', 'hb_delta', 'epo_resist']
+                    # ['usia', 'jk', 'MCHC', 'MCV', 'leukosit', 'trombosit', 'hb_lag', 'hb_delta', 'epo_resist']
                     cols_name = [
                         'usia', 'jk', 'MCHC', 'MCV',
                         'leukosit', 'trombosit',
@@ -243,6 +242,38 @@ if page == "Prediction Dashboard":
                         "dan ke-3 karena bersifat estimasi recursive."
                     )
 
+                    # SHAP WATERFALL PLOT
+                    st.write("**Analisis Kontribusi Fitur (SHAP)**")
+                    try:
+                        import shap
+                        import matplotlib
+                        import matplotlib.pyplot as plt
+                        matplotlib.use('Agg')  # non-interactive backend untuk Streamlit
+
+                        # Buat explainer dari model yang sudah di-load
+                        explainer   = shap.Explainer(model)
+                        shap_values = explainer(input_df)
+
+                        shap.plots.waterfall(shap_values[0], show=False)
+                        plt.title(
+                            f"Prediksi: {current_pred:.2f} g/dL  |  "
+                            f"Base Value (Rata-rata Populasi): {explainer.expected_value:.2f} g/dL",
+                            fontsize=11, pad=14
+                        )
+                        plt.tight_layout()
+                        st.pyplot(plt.gcf(), use_container_width=True)
+                        plt.close('all')
+
+                        st.caption(
+                            "Batang **merah (+)** mendorong prediksi naik dari rata-rata populasi. "
+                            "Batang **biru (−)** mendorong prediksi turun. "
+                            "Panjang batang menunjukkan besarnya kontribusi masing-masing fitur."
+                        )
+                    except ImportError:
+                        st.warning("Library SHAP belum terinstall. Jalankan: `pip install shap`")
+                    except Exception as e_shap:
+                        st.warning(f"Analisis SHAP tidak dapat ditampilkan: {e_shap}")
+
                 except FileNotFoundError:
                     st.error(
                         "Model belum tersedia. Silakan jalankan **Retraining System** "
@@ -257,23 +288,87 @@ elif page == "Retraining System":
     st.title("Automated Retraining Model")
     st.write("Unggah data Excel terbaru untuk memperbarui pengetahuan model.")
 
-    file_upload = st.file_uploader("Pilih file Excel (.xlsx)", type=["xlsx"])
+    # PATH MASTER DATA
+    # Disimpan di folder yang sama dengan main.py
+    APP_DIR     = os.path.dirname(os.path.abspath(__file__))
+    DATA_DIR    = os.path.join(APP_DIR, 'data')
+    MASTER_PATH = os.path.join(DATA_DIR, 'master_data_mentah.xlsx')
+    os.makedirs(DATA_DIR, exist_ok=True)
+
+    # SESSION STATE
+    if 'master_df' not in st.session_state:
+        if os.path.exists(MASTER_PATH):
+            try:
+                st.session_state['master_df'] = pd.read_excel(MASTER_PATH)
+            except Exception:
+                st.session_state['master_df'] = None
+        else:
+            st.session_state['master_df'] = None
+
+    # INFO STATUS MASTER DATA 
+    master_df = st.session_state.get('master_df')
+    if master_df is not None:
+        st.info(
+            f"ℹ️ **Master Data Aktif:** Tersedia **{len(master_df):,} baris** data historis. "
+            "Data baru yang diunggah akan otomatis digabungkan, duplikat dihapus, lalu model dilatih ulang."
+        )
+        with st.expander("🔍 Lihat Detail Master Data yang Tersimpan"):
+            st.dataframe(master_df.head(100), use_container_width=True)
+            st.caption(f"Menampilkan 100 dari {len(master_df):,} baris total master data.")
+    else:
+        st.info(
+            "ℹ️ **Belum ada master data.** "
+            "Data pertama yang Anda unggah akan menjadi basis pengetahuan awal model."
+        )
+
+    # FILE UPLOADER
+    file_upload = st.file_uploader(
+        "Unggah File Rekam Medis Baru (.xlsx)",
+        type=["xlsx"],
+        help="File akan digabungkan dengan master data yang ada. Duplikat baris otomatis dihapus."
+    )
 
     if file_upload:
         if st.button("Mulai Proses Retraining"):
-            with st.spinner("Sedang memproses..."):
-                temp_path = "temp_data_new.xlsx"
-                with open(temp_path, "wb") as f:
-                    f.write(file_upload.getbuffer())
+            with st.spinner("Menggabungkan data dan melatih ulang model..."):
+                try:
+                    df_baru = pd.read_excel(file_upload)
 
-                success = run_retraining(temp_path)
+                    if master_df is not None:
+                        df_gabungan = pd.concat([master_df, df_baru], ignore_index=True)
+                    else:
+                        df_gabungan = df_baru.copy()
 
-                # Hapus file sementara setelah selesai
-                if os.path.exists(temp_path):
-                    os.remove(temp_path)
+                    # Deduplikasi — hapus baris yang identik persis
+                    n_sebelum = len(df_gabungan)
+                    df_gabungan = df_gabungan.drop_duplicates().reset_index(drop=True)
+                    n_duplikat  = n_sebelum - len(df_gabungan)
 
-                if success:
-                    st.success("Model LightGBM berhasil diperbarui!")
-                    st.balloons()
-                else:
-                    st.error("Terjadi kesalahan teknis saat retraining. Cek terminal untuk detail error.")
+                    # Simpan hasil merge sebagai master terbaru (ke disk & session)
+                    df_gabungan.to_excel(MASTER_PATH, index=False)
+                    st.session_state['master_df'] = df_gabungan
+
+                    # Simpan sementara untuk diproses train.py
+                    temp_path = os.path.join(APP_DIR, "temp_data_new.xlsx")
+                    df_gabungan.to_excel(temp_path, index=False)
+
+                    # alankan retraining dengan data gabungan
+                    success = run_retraining(temp_path)
+
+                    # Hapus file temp
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
+
+                    if success:
+                        st.success(
+                            f"Model LightGBM berhasil diperbarui! "
+                            f"Master data kini berisi **{len(df_gabungan):,} baris** "
+                            f"({n_duplikat} duplikat dihapus)."
+                        )
+                        st.balloons()
+                        st.rerun()
+                    else:
+                        st.error("Terjadi kesalahan saat retraining. Cek terminal untuk detail.")
+
+                except Exception as e:
+                    st.error(f"Terjadi kesalahan: {e}")
