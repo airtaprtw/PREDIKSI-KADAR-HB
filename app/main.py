@@ -315,6 +315,22 @@ elif page == "Retraining System":
         with st.expander("🔍 Lihat Detail Master Data yang Tersimpan"):
             st.dataframe(master_df.head(100), use_container_width=True)
             st.caption(f"Menampilkan 100 dari {len(master_df):,} baris total master data.")
+
+            # TOMBOL DOWNLOAD MASTER DATA
+            try:
+                from io import BytesIO
+                buffer = BytesIO()
+                master_df.to_excel(buffer, index=False, engine='openpyxl')
+                buffer.seek(0)
+                st.download_button(
+                    label="⬇️ Download Master Data Terkini (.xlsx)",
+                    data=buffer,
+                    file_name="master_data_mentah.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    help=f"Mengunduh seluruh {len(master_df):,} baris master data dalam format Excel."
+                )
+            except Exception as e_dl:
+                st.warning(f"Gagal menyiapkan file unduhan: {e_dl}")
     else:
         st.info(
             "ℹ️ **Belum ada master data.** "
