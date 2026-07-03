@@ -1,5 +1,117 @@
 import pandas as pd
 import numpy as np
+import os
+import json
+import joblib
+from datetime import datetime
+
+
+# =====================================================================
+# MEKANISME VERSIONING & HISTORY MODEL (untuk Retraining System)
+# =====================================================================
+# Setiap kali retraining dijalankan, model TIDAK menimpa file lama.
+# Model baru disimpan dengan nama unik (versioned) dan dicatat pada
+# models/model_history.json, sehingga semua model hasil retraining
+# sebelumnya tetap tersimpan dan bisa dipilih kembali untuk prediksi.
+
+MODELS_DIR = 'models'
+HISTORY_PATH = os.path.join(MODELS_DIR, 'model_history.json')
+ACTIVE_MODEL_PATH = os.path.join(MODELS_DIR, 'active_model.txt')
+
+
+def load_model_history():
+    """Baca seluruh riwayat model yang pernah dilatih (list of dict)."""
+    if not os.path.exists(HISTORY_PATH):
+        return []
+    try:
+        with open(HISTORY_PATH, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def save_model_history(history):
+    os.makedirs(MODELS_DIR, exist_ok=True)
+    with open(HISTORY_PATH, 'w', encoding='utf-8') as f:
+        json.dump(history, f, indent=2, ensure_ascii=False)
+
+
+def register_new_model(model, features_order, n_rows_train, n_rows_master,
+                        params, metrics=None):
+    """
+    Simpan model hasil retraining sebagai file .pkl BARU dengan nama unik
+    (versioned by timestamp) -- model-model sebelumnya tidak dihapus/ditimpa.
+    Metadatanya dicatat ke models/model_history.json, dan model ini otomatis
+    dijadikan model aktif (dipakai untuk prediksi), namun tetap bisa diganti
+    manual ke versi model lain kapan saja.
+    """
+    os.makedirs(MODELS_DIR, exist_ok=True)
+
+    timestamp = datetime.now()
+    ts_str = timestamp.strftime('%Y%m%d_%H%M%S')
+    version_id = f"v{ts_str}"
+    filename = f"lgbm_model_{ts_str}.pkl"
+    filepath = os.path.join(MODELS_DIR, filename)
+
+    joblib.dump(model, filepath)
+
+    history = load_model_history()
+    entry = {
+        "version_id": version_id,
+        "filename": filename,
+        "filepath": filepath,
+        "trained_at": timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+        "n_rows_train": int(n_rows_train),
+        "n_rows_master": int(n_rows_master),
+        "features": list(features_order),
+        "params": params,
+        "metrics": metrics or {},
+    }
+    history.append(entry)
+    save_model_history(history)
+
+    # Model paling baru otomatis dijadikan model aktif untuk prediksi
+    set_active_model_filename(filename)
+
+    return entry
+
+
+def get_active_model_filename():
+    """
+    Kembalikan nama file model yang sedang 'aktif' dipakai untuk prediksi.
+    Default: model hasil retraining paling terakhir (jika belum pernah
+    dipilih manual).
+    """
+    if os.path.exists(ACTIVE_MODEL_PATH):
+        with open(ACTIVE_MODEL_PATH, 'r', encoding='utf-8') as f:
+            fname = f.read().strip()
+        if fname and os.path.exists(os.path.join(MODELS_DIR, fname)):
+            return fname
+
+    history = load_model_history()
+    if history:
+        return history[-1]['filename']
+    return None
+
+
+def set_active_model_filename(filename):
+    """Tandai salah satu versi model sebagai model aktif untuk prediksi."""
+    os.makedirs(MODELS_DIR, exist_ok=True)
+    with open(ACTIVE_MODEL_PATH, 'w', encoding='utf-8') as f:
+        f.write(filename)
+
+
+def get_file_size_str(filepath):
+    """Kembalikan ukuran file dalam format yang mudah dibaca (B/KB/MB/GB)."""
+    if not filepath or not os.path.exists(filepath):
+        return "N/A"
+    size = os.path.getsize(filepath)
+    for unit in ['B', 'KB', 'MB', 'GB']:
+        if size < 1024:
+            return f"{size:.0f} {unit}" if unit == 'B' else f"{size:.2f} {unit}"
+        size /= 1024
+    return f"{size:.2f} TB"
+
 
 def automated_pipeline(df):
     """

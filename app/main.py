@@ -10,6 +10,10 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'notebooks')))
 
 from train import run_retraining
+from utils import (
+    load_model_history, get_active_model_filename,
+    set_active_model_filename, get_file_size_str
+)
 
 st.set_page_config(page_title="Hb Prediction Dashboard", layout="wide")
 
@@ -71,6 +75,46 @@ with st.sidebar:
 # HALAMAN PREDIKSI
 
 if page == "Prediction Dashboard":
+    # PEMILIHAN VERSI MODEL YANG DIGUNAKAN UNTUK PREDIKSI
+    model_history = load_model_history()
+    selected_model_filename = None
+
+    if model_history:
+        # Urutkan dari yang terbaru
+        history_sorted = list(reversed(model_history))
+        options_map = {
+            f"{h['trained_at']}  |  {h['version_id']}  |  {h['n_rows_train']} baris data latih": h['filename']
+            for h in history_sorted
+        }
+        labels = list(options_map.keys())
+
+        active_filename = get_active_model_filename()
+        default_idx = 0
+        for i, h in enumerate(history_sorted):
+            if h['filename'] == active_filename:
+                default_idx = i
+                break
+
+        with st.expander("⚙️ Pilih Versi Model untuk Prediksi", expanded=False):
+            chosen_label = st.selectbox(
+                "Model (hasil retraining) yang dipakai:",
+                options=labels,
+                index=default_idx,
+                help="Setiap retraining menghasilkan model baru tanpa menghapus model lama. "
+                     "Anda bisa memilih versi model mana yang ingin dipakai untuk prediksi."
+            )
+            selected_model_filename = options_map[chosen_label]
+            if selected_model_filename != active_filename:
+                if st.button("Jadikan Model Ini Aktif"):
+                    set_active_model_filename(selected_model_filename)
+                    st.success(f"Model **{selected_model_filename}** kini menjadi model aktif.")
+                    st.rerun()
+    else:
+        st.warning(
+            "Belum ada riwayat model. Silakan jalankan **Retraining System** "
+            "terlebih dahulu untuk membuat model."
+        )
+
     st.subheader("Identitas Pasien")
     c_id1, c_id2, c_id3 = st.columns(3)
 
@@ -154,7 +198,12 @@ if page == "Prediction Dashboard":
                 st.warning(f"Mohon lengkapi data berikut: **{', '.join(missing)}**")
             else:
                 try:
-                    model = joblib.load('models/lgbm_best_model.pkl')
+                    # Pakai model versi yang dipilih user (jika ada),
+                    # fallback ke model aktif tersimpan
+                    active_model_filename = selected_model_filename or get_active_model_filename()
+                    if not active_model_filename:
+                        raise FileNotFoundError("Belum ada model yang terlatih.")
+                    model = joblib.load(os.path.join('models', active_model_filename))
 
                     # FEATURE ENGINEERING
                     # hb_lag  = Hb bulan lalu (t-1)
@@ -337,7 +386,94 @@ elif page == "Retraining System":
             "Data pertama yang Anda unggah akan menjadi basis pengetahuan awal model."
         )
 
+    # RIWAYAT MODEL (VERSIONING)
+    st.markdown("---")
+    st.subheader("📜 Riwayat Model (Model History)")
+    st.write(
+        "Setiap kali retraining dijalankan, sistem **tidak menimpa** model lama. "
+        "Model baru disimpan sebagai versi tersendiri sehingga Anda bisa memilih "
+        "kembali model versi sebelumnya kapan saja untuk dipakai pada prediksi."
+    )
+
+    model_history = load_model_history()
+    if model_history:
+        active_filename = get_active_model_filename()
+
+        df_history = pd.DataFrame(model_history)[
+            ['version_id', 'trained_at', 'n_rows_train', 'n_rows_master', 'metrics', 'filename']
+        ].iloc[::-1].reset_index(drop=True)  # terbaru di atas
+
+        df_history['train_rmse'] = df_history['metrics'].apply(
+            lambda m: round(m.get('train_rmse', float('nan')), 4) if isinstance(m, dict) else None
+        )
+        df_history['train_mae'] = df_history['metrics'].apply(
+            lambda m: round(m.get('train_mae', float('nan')), 4) if isinstance(m, dict) else None
+        )
+        df_history['Ukuran File'] = df_history['filename'].apply(
+            lambda f: get_file_size_str(os.path.join('models', f))
+        )
+        df_history['Status Aktif'] = df_history['filename'].apply(
+            lambda f: "✅ Aktif" if f == active_filename else ""
+        )
+
+        st.dataframe(
+            df_history[['version_id', 'trained_at', 'n_rows_train', 'n_rows_master',
+                        'train_rmse', 'train_mae', 'Ukuran File', 'Status Aktif']].rename(columns={
+                'version_id': 'Versi Model',
+                'trained_at': 'Waktu Dilatih',
+                'n_rows_train': 'Baris Data Latih',
+                'n_rows_master': 'Baris Master Data',
+                'train_rmse': 'Train RMSE',
+                'train_mae': 'Train MAE',
+            }),
+            use_container_width=True,
+            hide_index=True
+        )
+
+        # DOWNLOAD PER MODEL (.pkl)
+        st.write("**⬇️ Download Model (.pkl)**")
+        for h in reversed(model_history):
+            model_filepath = os.path.join('models', h['filename'])
+            size_str = get_file_size_str(model_filepath)
+            label_aktif = " · ✅ Aktif" if h['filename'] == active_filename else ""
+
+            col_info, col_btn = st.columns([4, 1])
+            with col_info:
+                st.write(
+                    f"**{h['version_id']}**{label_aktif}  —  {h['trained_at']}  "
+                    f"·  {h['n_rows_train']} baris data latih  ·  {size_str}"
+                )
+            with col_btn:
+                if os.path.exists(model_filepath):
+                    with open(model_filepath, 'rb') as f_model:
+                        st.download_button(
+                            label="Download",
+                            data=f_model.read(),
+                            file_name=h['filename'],
+                            mime="application/octet-stream",
+                            key=f"download_{h['filename']}"
+                        )
+                else:
+                    st.caption("File tidak ditemukan")
+
+        # OPSI MEMILIH MODEL AKTIF UNTUK PREDIKSI
+        options_map = {
+            f"{h['version_id']}  ({h['trained_at']})  {'— model aktif saat ini' if h['filename'] == active_filename else ''}": h['filename']
+            for h in reversed(model_history)
+        }
+        pilihan = st.selectbox(
+            "Pilih model mana yang ingin dipakai untuk prediksi:",
+            options=list(options_map.keys())
+        )
+        if st.button("Jadikan Model Terpilih sebagai Model Aktif"):
+            set_active_model_filename(options_map[pilihan])
+            st.success(f"Model **{options_map[pilihan]}** kini menjadi model aktif untuk prediksi.")
+            st.rerun()
+    else:
+        st.info("Belum ada riwayat model. Jalankan retraining pertama Anda di bawah ini.")
+
     # FILE UPLOADER
+    st.markdown("---")
     file_upload = st.file_uploader(
         "Unggah File Rekam Medis Baru (.xlsx)",
         type=["xlsx"],
@@ -349,6 +485,8 @@ elif page == "Retraining System":
             with st.spinner("Menggabungkan data dan melatih ulang model..."):
                 try:
                     df_baru = pd.read_excel(file_upload)
+                    n_baris_master_lama = len(master_df) if master_df is not None else 0
+                    n_baris_upload = len(df_baru)
 
                     if master_df is not None:
                         df_gabungan = pd.concat([master_df, df_baru], ignore_index=True)
@@ -359,6 +497,15 @@ elif page == "Retraining System":
                     n_sebelum = len(df_gabungan)
                     df_gabungan = df_gabungan.drop_duplicates().reset_index(drop=True)
                     n_duplikat  = n_sebelum - len(df_gabungan)
+                    n_baris_master_baru = len(df_gabungan)
+
+                    # Info transparansi: agar terlihat jelas apakah data bertambah
+                    st.caption(
+                        f"🔍 Rincian: Master lama **{n_baris_master_lama:,} baris** "
+                        f"+ File diunggah **{n_baris_upload:,} baris** "
+                        f"→ setelah digabung & dedup **{n_baris_master_baru:,} baris** "
+                        f"({n_duplikat} baris duplikat dihapus)."
+                    )
 
                     # Simpan hasil merge sebagai master terbaru (ke disk & session)
                     df_gabungan.to_excel(MASTER_PATH, index=False)
@@ -368,7 +515,10 @@ elif page == "Retraining System":
                     temp_path = os.path.join(APP_DIR, "temp_data_new.xlsx")
                     df_gabungan.to_excel(temp_path, index=False)
 
-                    # alankan retraining dengan data gabungan
+                    # Jalankan retraining dengan data gabungan
+                    # (train.py TIDAK melakukan merge lagi -- data yang dikirim
+                    # ke sini sudah final/lengkap, jadi tidak ada risiko
+                    # mismatch antara master data di sini dan di train.py)
                     success = run_retraining(temp_path)
 
                     # Hapus file temp
@@ -376,8 +526,11 @@ elif page == "Retraining System":
                         os.remove(temp_path)
 
                     if success:
+                        new_active = get_active_model_filename()
                         st.success(
-                            f"Model LightGBM berhasil diperbarui! "
+                            f"Model LightGBM baru berhasil dibuat: **{new_active}**. "
+                            f"Model versi sebelumnya tetap tersimpan dan bisa dipilih kembali di "
+                            f"bagian **Riwayat Model** di atas. "
                             f"Master data kini berisi **{len(df_gabungan):,} baris** "
                             f"({n_duplikat} duplikat dihapus)."
                         )

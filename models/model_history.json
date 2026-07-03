@@ -1,0 +1,64 @@
+[
+  {
+    "version_id": "v20260701_123825",
+    "filename": "lgbm_model_20260701_123825.pkl",
+    "filepath": "models\\lgbm_model_20260701_123825.pkl",
+    "trained_at": "2026-07-01 12:38:25",
+    "n_rows_train": 497,
+    "n_rows_master": 823,
+    "features": [
+      "usia",
+      "jk",
+      "MCHC",
+      "MCV",
+      "leukosit",
+      "trombosit",
+      "hb_lag",
+      "hb_delta",
+      "epo_resist"
+    ],
+    "params": {
+      "n_estimators": 100,
+      "max_depth": 5,
+      "learning_rate": 0.05,
+      "num_leaves": 15,
+      "random_state": 42,
+      "verbose": -1
+    },
+    "metrics": {
+      "train_rmse": 0.5625987234756405,
+      "train_mae": 0.4418070961910743
+    }
+  },
+  {
+    "version_id": "v20260701_123855",
+    "filename": "lgbm_model_20260701_123855.pkl",
+    "filepath": "models\\lgbm_model_20260701_123855.pkl",
+    "trained_at": "2026-07-01 12:38:55",
+    "n_rows_train": 528,
+    "n_rows_master": 868,
+    "features": [
+      "usia",
+      "jk",
+      "MCHC",
+      "MCV",
+      "leukosit",
+      "trombosit",
+      "hb_lag",
+      "hb_delta",
+      "epo_resist"
+    ],
+    "params": {
+      "n_estimators": 100,
+      "max_depth": 5,
+      "learning_rate": 0.05,
+      "num_leaves": 15,
+      "random_state": 42,
+      "verbose": -1
+    },
+    "metrics": {
+      "train_rmse": 0.576937272812598,
+      "train_mae": 0.45069836018217635
+    }
+  }
+]
