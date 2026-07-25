@@ -15,6 +15,13 @@ from utils import (
     set_active_model_filename, get_file_size_str
 )
 
+# PENTING: path absolut ke folder models/ di root repo, dihitung dari lokasi
+# file ini (app/main.py) -- bukan dari cwd saat proses dijalankan. Ini yang
+# dipakai konsisten di seluruh halaman (Prediction & Retraining) supaya app
+# tetap berjalan benar baik dijalankan lokal maupun saat dideploy.
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+MODELS_DIR = os.path.join(APP_DIR, '..', 'models')
+
 st.set_page_config(page_title="Hb Prediction Dashboard", layout="wide")
 
 st.markdown("""
@@ -203,7 +210,7 @@ if page == "Prediction Dashboard":
                     active_model_filename = selected_model_filename or get_active_model_filename()
                     if not active_model_filename:
                         raise FileNotFoundError("Belum ada model yang terlatih.")
-                    model = joblib.load(os.path.join('models', active_model_filename))
+                    model = joblib.load(os.path.join(MODELS_DIR, active_model_filename))
 
                     # FEATURE ENGINEERING
                     # hb_lag  = Hb bulan lalu (t-1)
@@ -410,7 +417,7 @@ elif page == "Retraining System":
             lambda m: round(m.get('train_mae', float('nan')), 4) if isinstance(m, dict) else None
         )
         df_history['Ukuran File'] = df_history['filename'].apply(
-            lambda f: get_file_size_str(os.path.join('models', f))
+            lambda f: get_file_size_str(os.path.join(MODELS_DIR, f))
         )
         df_history['Status Aktif'] = df_history['filename'].apply(
             lambda f: "✅ Aktif" if f == active_filename else ""
@@ -433,7 +440,7 @@ elif page == "Retraining System":
         # DOWNLOAD PER MODEL (.pkl)
         st.write("**⬇️ Download Model (.pkl)**")
         for h in reversed(model_history):
-            model_filepath = os.path.join('models', h['filename'])
+            model_filepath = os.path.join(MODELS_DIR, h['filename'])
             size_str = get_file_size_str(model_filepath)
             label_aktif = " · ✅ Aktif" if h['filename'] == active_filename else ""
 
@@ -493,17 +500,66 @@ elif page == "Retraining System":
                     else:
                         df_gabungan = df_baru.copy()
 
-                    # Deduplikasi — hapus baris yang identik persis
+                    # Deduplikasi — dicek berdasarkan pasangan
+                    # (id_pasien, tgl_pemeriksaan): baris-baris dengan
+                    # id_pasien & tgl_pemeriksaan yang sama dianggap
+                    # sebagai data yang sama (misal hasil lab yang
+                    # dikoreksi/direvisi), sehingga tetap didrop salah
+                    # satunya walaupun ada kolom lain yang isinya
+                    # berbeda. Baris yang dipertahankan adalah baris
+                    # PALING TERAKHIR (keep='last') -- karena data baru
+                    # yang diunggah digabung SETELAH master lama
+                    # (pd.concat([master_df, df_baru])), maka versi
+                    # data yang lebih baru/terbaru yang akan disimpan.
                     n_sebelum = len(df_gabungan)
-                    df_gabungan = df_gabungan.drop_duplicates().reset_index(drop=True)
+                    if {'id_pasien', 'tgl_pemeriksaan'}.issubset(df_gabungan.columns):
+                        df_gabungan = df_gabungan.drop_duplicates(
+                            subset=['id_pasien', 'tgl_pemeriksaan'], keep='last'
+                        )
+                    else:
+                        # Fallback: jika kolom id_pasien/tgl_pemeriksaan tidak
+                        # ditemukan, gunakan pengecekan seluruh kolom seperti semula
+                        df_gabungan = df_gabungan.drop_duplicates()
+
+                    df_gabungan = df_gabungan.reset_index(drop=True)
                     n_duplikat  = n_sebelum - len(df_gabungan)
                     n_baris_master_baru = len(df_gabungan)
+
+                    # SORTING ULANG BERDASARKAN id_pasien
+                    # Data baru bisa saja berisi id_pasien yang sudah ada di
+                    # master lama, sehingga posisi barisnya bisa tercampur
+                    # (tidak berurutan per pasien) setelah digabung. Di sini
+                    # data disortir ulang berdasarkan id_pasien, dan di dalam
+                    # tiap id_pasien diurutkan lagi berdasarkan tgl_pemeriksaan
+                    # (jika kolomnya ada) supaya urutan kronologis per pasien
+                    # tetap benar -- ini penting karena train.py membangun
+                    # fitur lag (hb_lag, hb_lag2) berbasis urutan waktu per
+                    # pasien.
+                    if 'id_pasien' in df_gabungan.columns:
+                        if 'tgl_pemeriksaan' in df_gabungan.columns:
+                            _tgl_sort_key = pd.to_datetime(
+                                df_gabungan['tgl_pemeriksaan'], errors='coerce'
+                            )
+                            df_gabungan = (
+                                df_gabungan
+                                .assign(_tgl_sort=_tgl_sort_key)
+                                .sort_values(by=['id_pasien', '_tgl_sort'], kind='stable')
+                                .drop(columns=['_tgl_sort'])
+                                .reset_index(drop=True)
+                            )
+                        else:
+                            df_gabungan = (
+                                df_gabungan
+                                .sort_values(by=['id_pasien'], kind='stable')
+                                .reset_index(drop=True)
+                            )
 
                     # Info transparansi: agar terlihat jelas apakah data bertambah
                     st.caption(
                         f"🔍 Rincian: Master lama **{n_baris_master_lama:,} baris** "
                         f"+ File diunggah **{n_baris_upload:,} baris** "
-                        f"→ setelah digabung & dedup **{n_baris_master_baru:,} baris** "
+                        f"→ setelah digabung, dedup, & disortir ulang per id_pasien "
+                        f"**{n_baris_master_baru:,} baris** "
                         f"({n_duplikat} baris duplikat dihapus)."
                     )
 
